@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterOutlet } from '@angular/router';
+import Peer, { MediaConnection } from 'peerjs';
 
 @Component({
   selector: 'app-root',
@@ -10,156 +11,89 @@ import { Router, RouterOutlet } from '@angular/router';
   styleUrls: ['./app.component.scss'],
 })
 export class AppComponent implements OnInit {
-  private peerConnection!: RTCPeerConnection;
-  private localStream!: MediaStream;
+  peer!: Peer;
+  localPeerId: string = '';
   remotePeerId: string = '';
-  localPeerId: string = crypto.randomUUID();
-  private dataChannel!: RTCDataChannel;
+  localStream!: MediaStream;
 
   constructor(private router: Router) {}
 
-  async ngOnInit() {
-    await this.initializeConnection();
-    await this.requestMediaStream();
-    this.router.navigateByUrl(`/?id=${this.localPeerId}`);
+  ngOnInit(): void {
+    this.initializePeerConnection();
+    this.requestMediaStream();
   }
 
-  // Initialize WebRTC connection with TURN servers
-  async initializeConnection() {
-    try {
-      const response = await fetch(
-        'https://surya-peer.metered.live/api/v1/turn/credentials?apiKey=155fcba4dcc4bdf916c19b928233ee6acbe0'
-      );
-      const iceServers = await response.json();
+  // Initialize peer connection
+  async initializePeerConnection() {
+    const response = await fetch(
+      'https://surya-peer.metered.live/api/v1/turn/credentials?apiKey=155fcba4dcc4bdf916c19b928233ee6acbe0'
+    );
+    const iceServers = await response.json();
+    console.log('ice servers', iceServers);
+    // peerConfiguration.iceServers = iceServers;
+    this.peer = new Peer(undefined as any, {
+      debug: 3,
+      config: iceServers,
+      secure: false,
+      referrerPolicy: 'no-referrer',
+    });
 
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: iceServers,
-      });
+    // this.peer = new Peer();
+    this.peer.on('open', (id) => {
+      this.localPeerId = id;
+      console.log(`My peer ID is: ${id}`);
+      this.router.navigateByUrl(`/?id=${id}`); // Update URL with peer ID
+    });
 
-      // Handle ICE candidates
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          // Send the ICE candidate to the remote peer
-          // You'll need to implement your signaling server to exchange this
-          console.log('New ICE candidate:', event.candidate);
-        }
-      };
-
-      // Handle incoming streams
-      this.peerConnection.ontrack = (event) => {
-        console.log('Received remote stream');
-        this.displayVideoStream(event.streams[0], false, this.remotePeerId);
-      };
-
-      // Create data channel for signaling
-      this.dataChannel = this.peerConnection.createDataChannel('signaling');
-      this.setupDataChannelHandlers();
-    } catch (error) {
-      console.error('Failed to initialize WebRTC connection:', error);
-    }
-  }
-
-  // Set up data channel event handlers
-  private setupDataChannelHandlers() {
-    this.dataChannel.onmessage = (event) => {
-      console.log('Received message:', event.data);
-    };
-
-    this.dataChannel.onopen = () => {
-      console.log('Data channel opened');
-    };
-
-    this.dataChannel.onclose = () => {
-      console.log('Data channel closed');
-    };
+    // Handle incoming calls
+    this.peer.on('call', (call) => this.handleIncomingCall(call));
   }
 
   // Request video/audio permission
-  async requestMediaStream() {
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-
-      // Add tracks to the peer connection
-      this.localStream.getTracks().forEach((track) => {
-        this.peerConnection.addTrack(track, this.localStream);
-      });
-
-      this.displayVideoStream(this.localStream, true, this.localPeerId);
-    } catch (error) {
-      console.error('Failed to get media stream:', error);
-    }
+  requestMediaStream() {
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        this.localStream = stream;
+        this.displayVideoStream(stream, true, this.localPeerId);
+      })
+      .catch((err) => console.error('Failed to get media stream:', err));
   }
 
-  // Initiate call to remote peer
-  async initiateCall() {
+  // Handle form submission to initiate a call
+  initiateCall() {
     if (!this.remotePeerId) return;
-
-    try {
-      // Create and set local description
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
-
-      // Send the offer to the remote peer via your signaling server
-      console.log('Created offer:', offer);
-
-      // You'll need to implement signaling server communication here
-      // this.signalingService.sendOffer(this.remotePeerId, offer);
-    } catch (error) {
-      console.error('Error creating offer:', error);
-    }
+    console.log(`Calling peer: ${this.remotePeerId}`);
+    const call = this.peer.call(this.remotePeerId, this.localStream);
+    call.on('stream', (remoteStream) => {
+      console.log('got remote stream ');
+      this.displayVideoStream(remoteStream, false, this.remotePeerId);
+    });
   }
 
   // Handle incoming call
-  async handleIncomingCall(offer: RTCSessionDescriptionInit) {
-    try {
-      await this.peerConnection.setRemoteDescription(
-        new RTCSessionDescription(offer)
-      );
-
-      const answer = await this.peerConnection.createAnswer();
-      await this.peerConnection.setLocalDescription(answer);
-
-      // Send the answer back to the caller via your signaling server
-      console.log('Created answer:', answer);
-
-      // You'll need to implement signaling server communication here
-      // this.signalingService.sendAnswer(this.remotePeerId, answer);
-    } catch (error) {
-      console.error('Error handling incoming call:', error);
-    }
-  }
-
-  // Handle incoming answer from remote peer
-  async handleAnswer(answer: RTCSessionDescriptionInit) {
-    try {
-      await this.peerConnection.setRemoteDescription(
-        new RTCSessionDescription(answer)
-      );
-    } catch (error) {
-      console.error('Error handling answer:', error);
-    }
-  }
-
-  // Handle incoming ICE candidate
-  async handleIceCandidate(candidate: RTCIceCandidateInit) {
-    try {
-      await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (error) {
-      console.error('Error adding ICE candidate:', error);
-    }
+  handleIncomingCall(call: MediaConnection) {
+    console.log('Incoming call from:', call.peer);
+    call.answer(this.localStream); // Answer with local stream
+    call.on('stream', (remoteStream: MediaStream) => {
+      console.log('answer the remote stream', remoteStream);
+      this.displayVideoStream(remoteStream, false, call.peer);
+    });
   }
 
   // Display video stream (local or remote)
   displayVideoStream(stream: MediaStream, isMuted: boolean, peerId: string) {
+    // const doc = document.getElementById(`video-${peerId}`);
+    // if (doc) {
+    //   return;
+    // }
+    console.log('adding to display');
     const videoElement = this.createVideoElement(stream, isMuted, peerId);
     this.appendVideoToContainer(videoElement, peerId);
   }
 
   // Create and configure a video element
-  private createVideoElement(
+  createVideoElement(
     stream: MediaStream,
     isMuted: boolean,
     peerId: string
@@ -169,24 +103,22 @@ export class AppComponent implements OnInit {
     videoElement.muted = isMuted;
     videoElement.autoplay = true;
     videoElement.playsInline = true;
+    videoElement.addEventListener('loadedmetadata', () =>
+      videoElement.play().catch((e) => console.log('eerrrrrr', e))
+    );
+
     videoElement.id = `video-${peerId}`;
-
-    videoElement.addEventListener('loadedmetadata', () => {
-      videoElement
-        .play()
-        .catch((error) => console.error('Error playing video:', error));
-    });
-
     return videoElement;
   }
 
   // Append video element to the container
-  private appendVideoToContainer(
-    videoElement: HTMLVideoElement,
-    peerId: string
-  ) {
+  appendVideoToContainer(videoElement: HTMLVideoElement, peerId: string) {
     const container = document.getElementById('video-container');
     if (container) {
+      // const videoWrapper = document.createElement('div');
+      // videoWrapper.innerHTML = `Peer ID: ${peerId}`;
+      // videoWrapper.appendChild(videoElement);
+      console.log('append', videoElement);
       container.appendChild(videoElement);
     }
   }

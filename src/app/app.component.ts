@@ -33,13 +33,9 @@ export class AppComponent implements OnInit {
     // peerConfiguration.iceServers = iceServers;
     this.peer = new Peer(undefined as any, {
       debug: 3,
-      config: {
-        ...iceServers,
-        sdpSemantics: 'unified-plan',
-        iceTransportPolicy: 'all',
-      },
-      secure: true,
-      port: 443,
+      config: iceServers,
+      secure: false,
+      referrerPolicy: 'no-referrer',
     });
 
     // this.peer = new Peer();

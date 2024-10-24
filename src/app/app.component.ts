@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterOutlet } from '@angular/router';
-import Peer from 'peerjs';
+import Peer, { MediaConnection } from 'peerjs';
 
 @Component({
   selector: 'app-root',
@@ -12,71 +12,112 @@ import Peer from 'peerjs';
 })
 export class AppComponent implements OnInit {
   peer!: Peer;
-  remoteUserId: string = ''; // For Peer ID input
+  localPeerId: string = '';
+  remotePeerId: string = '';
   localStream!: MediaStream;
-  videoElement!: HTMLVideoElement;
 
   constructor(private router: Router) {}
 
   ngOnInit(): void {
-    this.peer = new Peer(); // Peer initialized without an ID, a random one will be assigned
-    this.peer.on('open', (id) => {
-      console.log('My peer ID is: ' + id); // Log your peer ID for reference
-      this.router.navigateByUrl(`/?id=${id}`); // Use peer ID in the URL
+    this.initializePeerConnection();
+    this.requestMediaStream();
+  }
+
+  // Initialize peer connection
+  async initializePeerConnection() {
+    const response = await fetch(
+      'https://surya-peer.metered.live/api/v1/turn/credentials?apiKey=155fcba4dcc4bdf916c19b928233ee6acbe0'
+    );
+    const iceServers = await response.json();
+    console.log('ice servers', iceServers);
+    // peerConfiguration.iceServers = iceServers;
+    this.peer = new Peer(undefined as any, {
+      debug: 3,
+      config: {
+        ...iceServers,
+        sdpSemantics: 'unified-plan',
+        iceTransportPolicy: 'all',
+      },
+      secure: true,
+      port: 443,
     });
 
-    // Request video/audio permission
+    // this.peer = new Peer();
+    this.peer.on('open', (id) => {
+      this.localPeerId = id;
+      console.log(`My peer ID is: ${id}`);
+      this.router.navigateByUrl(`/?id=${id}`); // Update URL with peer ID
+    });
+
+    // Handle incoming calls
+    this.peer.on('call', (call) => this.handleIncomingCall(call));
+  }
+
+  // Request video/audio permission
+  requestMediaStream() {
     navigator.mediaDevices
-      .getUserMedia({
-        video: true,
-        audio: true,
-      })
+      .getUserMedia({ video: true, audio: true })
       .then((stream) => {
         this.localStream = stream;
-        this.addVideoStream(stream, true); // Add local video
-
-        this.peer.on('call', (call) => {
-          console.log('connectid', call);
-          console.log('Incoming call');
-          call.answer(stream); // Answer call with local stream
-          call.on('stream', (remoteStream) => {
-            console.log('Received remote stream');
-            this.addVideoStream(remoteStream, true); // Display remote stream
-          });
-        });
+        this.displayVideoStream(stream, true, this.localPeerId);
       })
-      .catch((err) => {
-        console.error('Failed to get media stream:', err);
-      });
+      .catch((err) => console.error('Failed to get media stream:', err));
   }
 
-  // Handle form submission
-  submitForm() {
-    console.log('Calling peer:', this.remoteUserId);
-    const call = this.peer.call(this.remoteUserId, this.localStream); // Call peer
-    call.on('stream', (r) => {
-      console.log('nw user');
-      this.addVideoStream(r, false);
-    });
-    // thiscall.on('error', (err: any) => {
-    //   console.error('Call error:', err);
-    // });
+  // Handle form submission to initiate a call
+  initiateCall() {
+    if (!this.remotePeerId) return;
+    console.log(`Calling peer: ${this.remotePeerId}`);
+    const call = this.peer.call(this.remotePeerId, this.localStream);
+    call.on('stream', (remoteStream) =>
+      this.displayVideoStream(remoteStream, false, this.remotePeerId)
+    );
   }
 
-  // Helper function to add video stream
-  addVideoStream(stream: MediaStream, muted: boolean) {
-    // Create a new video element if it doesn't exist
-    this.videoElement = document.createElement('video');
-    this.videoElement.srcObject = stream;
-    this.videoElement.muted = muted;
-    this.videoElement.autoplay = true;
-    this.videoElement.playsInline = true;
+  // Handle incoming call
+  handleIncomingCall(call: MediaConnection) {
+    console.log('Incoming call from:', call.peer);
+    call.answer(this.localStream); // Answer with local stream
+    call.on('stream', (remoteStream: MediaStream) =>
+      this.displayVideoStream(remoteStream, false, call.peer)
+    );
+  }
 
-    this.videoElement.addEventListener('loadedmetadata', () => {
-      this.videoElement.play();
-    });
+  // Display video stream (local or remote)
+  displayVideoStream(stream: MediaStream, isMuted: boolean, peerId: string) {
+    // const doc = document.getElementById(`video-${peerId}`);
+    // if (doc) {
+    //   return;
+    // }
+    const videoElement = this.createVideoElement(stream, isMuted, peerId);
+    this.appendVideoToContainer(videoElement, peerId);
+  }
 
-    const container = document.getElementById('container');
-    container?.appendChild(this.videoElement);
+  // Create and configure a video element
+  createVideoElement(
+    stream: MediaStream,
+    isMuted: boolean,
+    peerId: string
+  ): HTMLVideoElement {
+    const videoElement = document.createElement('video');
+    videoElement.srcObject = stream;
+    videoElement.muted = isMuted;
+    videoElement.autoplay = true;
+    videoElement.playsInline = true;
+    videoElement.addEventListener('loadedmetadata', () => videoElement.play());
+
+    videoElement.id = `video-${peerId}`;
+    return videoElement;
+  }
+
+  // Append video element to the container
+  appendVideoToContainer(videoElement: HTMLVideoElement, peerId: string) {
+    const container = document.getElementById('video-container');
+    if (container) {
+      // const videoWrapper = document.createElement('div');
+      // videoWrapper.innerHTML = `Peer ID: ${peerId}`;
+      // videoWrapper.appendChild(videoElement);
+      container.appendChild(videoElement);
+    }
   }
 }

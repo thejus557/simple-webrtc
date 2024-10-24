@@ -65,18 +65,20 @@ export class AppComponent implements OnInit {
     if (!this.remotePeerId) return;
     console.log(`Calling peer: ${this.remotePeerId}`);
     const call = this.peer.call(this.remotePeerId, this.localStream);
-    call.on('stream', (remoteStream) =>
-      this.displayVideoStream(remoteStream, false, this.remotePeerId)
-    );
+    call.on('stream', (remoteStream) => {
+      console.log('got remote stream ');
+      this.displayVideoStream(remoteStream, false, this.remotePeerId);
+    });
   }
 
   // Handle incoming call
   handleIncomingCall(call: MediaConnection) {
     console.log('Incoming call from:', call.peer);
     call.answer(this.localStream); // Answer with local stream
-    call.on('stream', (remoteStream: MediaStream) =>
-      this.displayVideoStream(remoteStream, false, call.peer)
-    );
+    call.on('stream', (remoteStream: MediaStream) => {
+      console.log('answer the remote stream');
+      this.displayVideoStream(remoteStream, false, call.peer);
+    });
   }
 
   // Display video stream (local or remote)

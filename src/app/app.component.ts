@@ -103,7 +103,9 @@ export class AppComponent implements OnInit {
     videoElement.muted = isMuted;
     videoElement.autoplay = true;
     videoElement.playsInline = true;
-    videoElement.addEventListener('loadedmetadata', () => videoElement.play());
+    videoElement.addEventListener('loadedmetadata', () =>
+      videoElement.play().catch((e) => console.log('eerrrrrr', e))
+    );
 
     videoElement.id = `video-${peerId}`;
     return videoElement;

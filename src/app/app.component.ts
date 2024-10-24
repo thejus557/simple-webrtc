@@ -76,7 +76,7 @@ export class AppComponent implements OnInit {
     console.log('Incoming call from:', call.peer);
     call.answer(this.localStream); // Answer with local stream
     call.on('stream', (remoteStream: MediaStream) => {
-      console.log('answer the remote stream');
+      console.log('answer the remote stream', remoteStream);
       this.displayVideoStream(remoteStream, false, call.peer);
     });
   }
@@ -87,6 +87,7 @@ export class AppComponent implements OnInit {
     // if (doc) {
     //   return;
     // }
+    console.log('adding to display');
     const videoElement = this.createVideoElement(stream, isMuted, peerId);
     this.appendVideoToContainer(videoElement, peerId);
   }
@@ -115,6 +116,7 @@ export class AppComponent implements OnInit {
       // const videoWrapper = document.createElement('div');
       // videoWrapper.innerHTML = `Peer ID: ${peerId}`;
       // videoWrapper.appendChild(videoElement);
+      console.log('append', videoElement);
       container.appendChild(videoElement);
     }
   }
